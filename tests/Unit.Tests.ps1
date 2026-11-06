@@ -88,3 +88,31 @@ Describe 'Bounded probe result classification' {
         (Get-CndProbeStatus 60 '000') | Should Be 'TlsFailure'
     }
 }
+
+Describe 'Interactive safety gates' {
+    It 'does not write when repair approval is refused' {
+        Mock Get-CndSnapshot { [pscustomobject]@{} } -ModuleName CodexRepair
+        Mock Resolve-CndFindings { [pscustomobject]@{RepairSupported=$true} } -ModuleName CodexRepair
+        Mock Get-CndRepairPlan { [pscustomobject]@{Candidate='http://127.0.0.1:7892';Changes=@('HTTP_PROXY');Effect='Other apps may be affected';Target=@{}} } -ModuleName CodexRepair
+        Mock Read-Host { 'NO' } -ModuleName CodexRepair
+        Mock Set-CndRegistryState {} -ModuleName CodexRepair
+        Invoke-CndRepair -BackupDirectory $TestDrive | Out-Null
+        Assert-MockCalled Set-CndRegistryState -Times 0 -ModuleName CodexRepair
+    }
+    It 'restores backed-up state and checks it during rollback' {
+        $global:CndTestRestored=$false
+        $global:CndTestBefore=[ordered]@{HTTP_PROXY=@{Exists=$false;Value=$null;Kind=$null};HTTPS_PROXY=@{Exists=$true;Value='';Kind='String'};NO_PROXY=@{Exists=$true;Value='localhost';Kind='String'}}
+        $global:CndTestAfter=[ordered]@{HTTP_PROXY=@{Exists=$true;Value='http://127.0.0.1:7892';Kind='String'};HTTPS_PROXY=@{Exists=$true;Value='http://127.0.0.1:7892';Kind='String'};NO_PROXY=@{Exists=$true;Value='localhost,127.0.0.1,::1';Kind='String'}}
+        Mock Read-CndBackup { [pscustomobject]@{Before=[pscustomobject]$global:CndTestBefore;After=[pscustomobject]$global:CndTestAfter} } -ModuleName CodexRepair
+        Mock Get-CndRegistryState { if($global:CndTestRestored){$global:CndTestBefore}else{$global:CndTestAfter} } -ModuleName CodexRepair
+        Mock Set-CndRegistryState { $global:CndTestRestored=$true } -ModuleName CodexRepair
+        Mock Save-CndBackup { 'safety.cndb' } -ModuleName CodexRepair
+        Mock Read-Host { 'YES' } -ModuleName CodexRepair
+        Invoke-CndRollback -BackupPath (Join-Path $TestDrive 'dummy.cndb') | Out-Null
+        $global:CndTestRestored | Should Be $true
+        Assert-MockCalled Set-CndRegistryState -Times 1 -ModuleName CodexRepair
+        Remove-Variable CndTestRestored -Scope Global
+        Remove-Variable CndTestBefore -Scope Global
+        Remove-Variable CndTestAfter -Scope Global
+    }
+}
