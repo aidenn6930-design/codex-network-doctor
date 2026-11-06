@@ -1,0 +1,29 @@
+{
+  "SchemaVersion": "1.0",
+  "ToolVersion": "0.1.0",
+  "GeneratedAt": "2026-01-01T00:00:00Z",
+  "Platform": {
+    "OS": "Microsoft Windows NT 10.0.22631.0",
+    "PowerShell": "7.4.0",
+    "CodexCliVersion": "codex-cli example",
+    "CodexDesktopVersion": null,
+    "DoctorSupported": false
+  },
+  "Proxy": {
+    "SystemEnabled": true,
+    "SystemEndpoint": "http://127.0.0.1:7892",
+    "WinHttp": "direct",
+    "Variables": {
+      "Process": { "HTTP_PROXY": null, "HTTPS_PROXY": null, "ALL_PROXY": null, "NO_PROXY": "absent", "CODEX_CLI_PATH": "absent" },
+      "User": { "HTTP_PROXY": null, "HTTPS_PROXY": null, "ALL_PROXY": null, "NO_PROXY": "absent", "CODEX_CLI_PATH": "absent" },
+      "Machine": { "HTTP_PROXY": null, "HTTPS_PROXY": null, "ALL_PROXY": null, "NO_PROXY": "absent", "CODEX_CLI_PATH": "absent" }
+    },
+    "Candidate": "http://127.0.0.1:7892"
+  },
+  "Probe": { "Status": "Pass", "HttpStatus": 200, "Detail": "curl exit 0" },
+  "CodexDoctor": { "Status": "Unsupported", "WebSocket": "Unsupported", "Summary": "Codex doctor --network-only unavailable" },
+  "Findings": [
+    { "Code": "PROXY_NOT_CONFIGURED", "Severity": "Warning", "Evidence": "User HTTP_PROXY and HTTPS_PROXY absent", "PossibleCause": "A local system proxy may not be inherited by Codex", "Confidence": "Medium", "NextAction": "Validate the local proxy, then review the repair plan", "RepairSupported": true }
+  ],
+  "Summary": { "Errors": 0, "Warnings": 1 }
+}

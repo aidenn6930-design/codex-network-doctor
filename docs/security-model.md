@@ -1,0 +1,7 @@
+# Security model
+
+Diagnostics read local configuration and make bounded requests only to `https://chatgpt.com/` through an explicitly configured, credential-free local proxy and to Codex's own endpoints via the installed official CLI Doctor. They do not read authentication files. Raw Codex Doctor output is not copied to reports. Proxy usernames/passwords, raw NO_PROXY, and raw CODEX_CLI_PATH values are excluded from JSON and terminal output.
+
+Repair requires a known local HTTP proxy address, a listener, a successful HTTPS probe, a repairable mismatch, and typed `YES`. It never runs an arbitrary listener as a proxy, never writes machine settings, and never changes WinHTTP, DNS, firewall, proxy software, Codex data, or processes. Windows DPAPI encrypts backups for the current user. Rollback detects intervening changes and needs `OVERWRITE` in addition to `YES`. Both paths keep an encrypted safety copy.
+
+Limitations: DPAPI does not protect against malware running as the same user. HTTPS probe success is not proof of all Codex routes. Codex Doctor may have version-specific behavior. A CLI subprocess can theoretically hang despite its current internal 15-second WebSocket timeout; use `-SkipNetwork` when necessary. The tool does not inspect another process's private environment or arbitrary logs. Existing process environments do not change when registry values are written.

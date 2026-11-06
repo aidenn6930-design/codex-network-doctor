@@ -1,0 +1,10 @@
+# Troubleshooting
+
+1. Run `diagnose -Detailed` and preserve only the redacted output.
+2. If the configured listener is absent, check whether your proxy software is running and whether its port changed.
+3. If a port mismatch appears, inspect both explicit candidates. Do not guess from other open ports.
+4. If HTTPS fails but the listener exists, check proxy protocol, DNS, TLS certificates, and upstream connectivity. A 403 challenge or 432 alone does not establish the cause.
+5. If HTTPS passes but Codex Doctor WebSocket fails, inspect the full Codex Doctor output locally and check WebSocket support in the proxy. Redact any logs before sharing.
+6. If all checks pass while workspaces still fail, note the error time, Codex versions, and service status; investigate application routing and upstream service health.
+
+The installed CLI's `doctor --network-only` command is used only when `doctor --help` advertises it. Unsupported checks are reported as such.

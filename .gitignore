@@ -1,0 +1,6 @@
+backups/
+dist/
+*.log
+*.trx
+.vscode/
+.idea/

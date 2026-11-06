@@ -1,0 +1,24 @@
+name: Build release archive (manual only)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  archive:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Build v0.1.0 source archive and checksum
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Path dist | Out-Null
+          Compress-Archive -Path src,tests,docs,README.md,README.zh-CN.md,LICENSE,CHANGELOG.md,CONTRIBUTING.md,SECURITY.md -DestinationPath dist/codex-network-doctor-v0.1.0.zip
+          $hash=(Get-FileHash dist/codex-network-doctor-v0.1.0.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  codex-network-doctor-v0.1.0.zip" | Set-Content dist/SHA256SUMS.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: codex-network-doctor-v0.1.0
+          path: dist/*

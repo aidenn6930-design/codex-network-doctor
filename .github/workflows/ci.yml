@@ -1,0 +1,35 @@
+name: CI
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shell: [pwsh, powershell]
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Install test tools
+        run: |
+          Install-Module Pester -RequiredVersion 4.10.1 -Scope CurrentUser -Force -SkipPublisherCheck
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+      - name: Check syntax and static analysis
+        run: |
+          $ErrorActionPreference='Stop'
+          $files=Get-ChildItem src,tests -Recurse -Include *.ps1,*.psm1
+          foreach($file in $files){$tokens=$null;$errors=$null;[void][System.Management.Automation.Language.Parser]::ParseFile($file.FullName,[ref]$tokens,[ref]$errors);if($errors.Count){throw "$($file.Name): $($errors | ForEach-Object Message)"}}
+          $issues=Invoke-ScriptAnalyzer -Path src -Recurse -Severity Error
+          if($issues){$issues | Format-Table;throw 'PSScriptAnalyzer errors'}
+      - name: Pester
+        run: |
+          Import-Module Pester -RequiredVersion 4.10.1
+          $result=Invoke-Pester ./tests -PassThru
+          if($result.FailedCount -gt 0){throw "$($result.FailedCount) tests failed"}
+          "Passed $($result.PassedCount) tests" | Add-Content $env:GITHUB_STEP_SUMMARY
