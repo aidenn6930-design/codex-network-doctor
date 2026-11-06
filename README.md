@@ -2,7 +2,7 @@
 
 An independent community toolkit for diagnosing Windows proxy and Codex connectivity problems. **Not affiliated with or endorsed by OpenAI.** It does not claim to fix every Codex error.
 
-**Diagnose first. Explain clearly. Repair safely. Verify results.** Version 0.1.0 targets Windows 10/11 with Windows PowerShell 5.1 or PowerShell 7. Windows 11 and PowerShell 7.6.5 were tested locally; the other combinations remain CI targets, not verified environments.
+**Diagnose first. Explain clearly. Repair safely. Verify results.** Version 0.1.0 targets Windows 10/11 with Windows PowerShell 5.1 or PowerShell 7. Windows 11 with PowerShell 5.1 and 7.6.5 was tested locally; Windows 10 remains unverified.
 
 ## Why
 

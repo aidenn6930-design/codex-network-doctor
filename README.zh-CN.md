@@ -2,7 +2,7 @@
 
 独立的社区 Windows 网络诊断工具，**与 OpenAI 没有关联，也未经 OpenAI 认可**。它帮助定位代理环境不一致、监听端口、HTTPS 和 WebSocket 问题，不保证修复所有 Codex 错误。
 
-理念：**先诊断、说明依据、安全修复、修后验证。** 0.1.0 面向 Windows 10/11、Windows PowerShell 5.1 与 PowerShell 7。本机实际验证环境为 Windows 11 和 PowerShell 7.6.5；其他组合目前是 CI 目标。
+理念：**先诊断、说明依据、安全修复、修后验证。** 0.1.0 面向 Windows 10/11、Windows PowerShell 5.1 与 PowerShell 7。本机实际验证环境为 Windows 11、PowerShell 5.1 与 7.6.5；Windows 10 尚未验证。
 
 ## 背景与功能
 
