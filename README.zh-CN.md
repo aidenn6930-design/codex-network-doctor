@@ -6,7 +6,7 @@
 
 ## 背景与功能
 
-浏览器能访问 ChatGPT，并不证明 Codex Desktop、CLI 和后台进程使用相同代理。一个匿名案例中，本地 HTTP 代理可用，但用户级 `HTTP_PROXY`、`HTTPS_PROXY` 缺失；补充持久环境变量并重启 Windows 后问题消失。HTTP 432 和工作区路由错误也可能有其他原因。
+浏览器能访问 ChatGPT，并不证明 Codex Desktop、CLI 和后台进程使用相同代理。一个匿名 Windows 11 案例中，本地代理正常，但用户级 `HTTP_PROXY`、`HTTPS_PROXY` 一度消失。补齐变量后 CLI 检查通过，桌面窗口却仍报工作区错误：直连 HTTPS 超时，而代理路径及 CLI Doctor 通过。只给桌面应用传入代理启动参数后，观察到窗口恢复，无须启用 Windows 系统代理。HTTP 432 和工作区路由错误也可能有其他原因。
 
 工具只读发现系统代理、WinHTTP、进程/用户/系统环境变量、本地监听、Codex 版本和进程。网络检查通过明确配置的本地代理进行，`curl.exe` 使用连接 5 秒、总计 12 秒超时。若 CLI 支持，会调用 `codex doctor --network-only` 并归纳 WebSocket 结果。报告提供证据、置信度和建议，支持脱敏 JSON。
 
@@ -19,9 +19,24 @@
 .\src\codex-doctor.ps1 diagnose -Detailed
 .\src\codex-doctor.ps1 diagnose -Json
 .\src\codex-doctor.ps1 diagnose -SkipNetwork
+.\src\codex-doctor.ps1 diagnose -CheckDesktopPath
 ```
 
 退出码：`0` 无错误或警告；`1` 警告；`2` 错误；`3` 命令失败。JSON 不包含代理凭据、原始 `NO_PROXY`、原始 `CODEX_CLI_PATH` 或 Codex Doctor 原始输出。
+
+## 桌面窗口的网络路径
+
+若桌面窗口显示“Couldn't load workspace settings”，但 CLI 检查通过，可运行 `diagnose -CheckDesktopPath`。此可选检查用 `curl.exe --noproxy '*'` 对比直连 HTTPS 与本地代理路径，均有超时限制。`DESKTOP_PROXY_ROUTE_GAP` 表示两条路径结果不同；还需核对应用日志才能确认桌面请求的实际路由。
+
+专用启动器读取当前用户一致的 `HTTP_PROXY`、`HTTPS_PROXY`，没有写死端口。也可用 `-ProxyUrl` 明确指定无凭据的本地 HTTP 代理。先预览、正常退出 Codex，再通过脚本启动。脚本不会改变 Windows 系统代理。它使用 Electron 的 [`--proxy-server` 参数](https://www.electronjs.org/docs/latest/api/command-line-switches)；重启后应核对新进程参数及应用日志。
+
+```powershell
+.\src\Start-CodexWithProxy.ps1 -Preview
+.\src\Start-CodexWithProxy.ps1 -ProxyUrl http://127.0.0.1:7892 -Preview
+.\src\Start-CodexWithProxy.ps1
+```
+
+也可双击根目录的 `Start-Codex-With-Proxy.cmd`，或自行创建指向它的桌面快捷方式；原始应用图标不会自动带上专用代理参数。
 
 ## 修复与回滚
 
@@ -33,7 +48,7 @@
 .\src\codex-doctor.ps1 rollback -Backup .\backups\backup-YYYYMMDD-HHMMSS-<id>.cndb
 ```
 
-回滚恢复原值和变量原先是否存在。若发现备份之后有新修改，会警告并额外要求输入 `OVERWRITE`。回滚前还会备份当前状态。加密备份通常只能由原用户在本机解密。
+回滚恢复原值和变量原先是否存在。若回滚会删除变量，脚本会明确列出；若发现备份之后有新修改，会警告并额外要求输入 `OVERWRITE`。回滚前还会备份当前状态。修复写入验证成功后，即使后续诊断失败，也不会撤销修复。加密备份通常只能由原用户在本机解密。
 
 ## 常见问题与限制
 
@@ -42,6 +57,7 @@
 - WebSocket 检查不可用：旧版 CLI 可能不支持 `doctor --network-only`，工具会明确报告不支持。
 - ChatGPT 首页 HTTP 200：只证明这一条 HTTPS 路径可用。
 - 失效的 `CODEX_CLI_PATH`：工具只提示，不自动删除。
+- CLI 未找到：工具会检查 PATH 和已安装的 Codex Desktop 自带 CLI；桌面版自带 CLI 不必出现在持久的用户 PATH 中。
 - 其他运行中进程的环境变量：工具无法安全通用地读取，报告仅展示当前 shell 环境。
 
 ## 测试、监测与贡献

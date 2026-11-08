@@ -6,7 +6,7 @@ An independent community toolkit for diagnosing Windows proxy and Codex connecti
 
 ## Why
 
-A browser reaching ChatGPT does not prove that Codex Desktop, Codex CLI, and their background processes inherited the same proxy. One anonymized Windows 11 incident had working browser access and a working local HTTP proxy, while user-level `HTTP_PROXY` and `HTTPS_PROXY` were absent. Persisting those variables and rebooting resolved that incident. HTTP 432 and workspace routing errors can have other causes.
+A browser reaching ChatGPT does not prove that Codex Desktop, Codex CLI, and their background processes inherited the same proxy. In an anonymized Windows 11 case, user-level `HTTP_PROXY` and `HTTPS_PROXY` went missing while a local proxy remained healthy. Persisting those variables helped the CLI, but a later desktop workspace error persisted: direct HTTPS timed out while the proxy path and CLI Doctor passed. Launching only the desktop app with an explicit proxy resolved the observed window failure without enabling the Windows system proxy. HTTP 432 and workspace routing errors can have other causes.
 
 ## Features
 
@@ -26,6 +26,7 @@ Clone or download the repository from a trusted source. No administrator rights 
 .\src\codex-doctor.ps1 diagnose -Detailed
 .\src\codex-doctor.ps1 diagnose -Json
 .\src\codex-doctor.ps1 diagnose -SkipNetwork
+.\src\codex-doctor.ps1 diagnose -CheckDesktopPath
 .\src\codex-doctor.ps1 version
 ```
 
@@ -42,6 +43,20 @@ Summary: 0 errors, 1 warnings. No changes made.
 
 Exit codes: `0` no error/warning, `1` warning, `2` error, `3` command failure. A missing Codex CLI is an informational finding. JSON output is redacted: proxy credentials, raw `NO_PROXY`, raw `CODEX_CLI_PATH`, and Codex Doctor output are omitted.
 
+## Desktop window routing
+
+If the desktop window shows “Couldn't load workspace settings” while CLI checks pass, run `diagnose -CheckDesktopPath`. This optional bounded probe compares direct HTTPS (`curl.exe --noproxy '*'`) with the local proxy path. `DESKTOP_PROXY_ROUTE_GAP` means the paths differ; inspect app logs to confirm which route desktop requests used.
+
+The app-only launcher reads matching user `HTTP_PROXY` and `HTTPS_PROXY` values; its port is not hardcoded. Use `-ProxyUrl` to select another credential-free local HTTP proxy. Preview the launch and exit Codex normally before starting it through the script. The script changes no Windows proxy setting. This uses Electron's [`--proxy-server` flag](https://www.electronjs.org/docs/latest/api/command-line-switches); verify the flag in the new process and app logs.
+
+```powershell
+.\src\Start-CodexWithProxy.ps1 -Preview
+.\src\Start-CodexWithProxy.ps1 -ProxyUrl http://127.0.0.1:7892 -Preview
+.\src\Start-CodexWithProxy.ps1
+```
+
+You may also double-click `Start-Codex-With-Proxy.cmd` or create a desktop shortcut to it. The original app icon does not inherit these flags.
+
 ## Repair and rollback
 
 Run `diagnose` first. Then run `repair` only if a repairable user proxy mismatch is found. Repair rechecks the configuration, requires an explicit local HTTP proxy candidate, checks its listener, and requires an HTTP 200 from `https://chatgpt.com/` through it. Multiple candidates require `-Candidate 1` (or another displayed one-based index). It shows intended changes and requires typing `YES`. Other applications launched under this user may inherit the changed variables. Credential-bearing URLs and SOCKS candidates are rejected for automatic repair.
@@ -52,7 +67,7 @@ Run `diagnose` first. Then run `repair` only if a repairable user proxy mismatch
 .\src\codex-doctor.ps1 rollback -Backup .\backups\backup-YYYYMMDD-HHMMSS-<id>.cndb
 ```
 
-Backups are versioned and encrypted with Windows DPAPI for the current user on the current machine. Rollback restores exact values and whether each variable existed, warns about newer changes, and requires a second `OVERWRITE` confirmation on conflict. It also saves a safety backup of the pre-rollback state. Neither operation changes already-running process environments. Close and reopen Codex in a controlled way; Windows sign-out or restart may be needed for all launchers to refresh environment variables.
+Backups are versioned and encrypted with Windows DPAPI for the current user on the current machine. Rollback restores exact values and whether each variable existed. It explicitly warns when this would remove a variable, warns about newer changes, and requires a second `OVERWRITE` confirmation on conflict. It also saves a safety backup of the pre-rollback state. A failed follow-up diagnostic after a verified repair no longer reverses the repair. Neither operation changes already-running process environments. Close and reopen Codex in a controlled way; Windows sign-out or restart may be needed for all launchers to refresh environment variables.
 
 ## Optional sign-in check
 
@@ -61,6 +76,7 @@ An opt-in Task Scheduler task can run `diagnose -SkipNetwork` once, two minutes 
 ## FAQ and limits
 
 - **Browser works, Codex fails?** Compare the process/user proxy variables and run Codex Doctor. Browser and Codex paths can differ.
+- **CLI reported missing?** The detector checks PATH, then the installed Codex Desktop bundle. Desktop's bundled CLI does not need to be on the persistent user PATH.
 - **HTTP 403 or 432?** These status codes alone do not prove a proxy error. Preserve time and sanitized error category, then check authentication, upstream service status, and Codex Doctor.
 - **WebSocket unavailable?** Older CLI builds may not support `doctor --network-only`. The tool reports unsupported rather than inventing a test.
 - **Homepage returns 200?** This only establishes that one HTTPS path works. Codex-specific checks are still needed.

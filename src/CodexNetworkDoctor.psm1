@@ -18,6 +18,26 @@ function Get-CndEndpoint {
     } catch { return $null }
 }
 
+function Resolve-CndLauncherProxy {
+    param([AllowNull()][string]$ProxyUrl,[AllowNull()][string]$HttpProxy,[AllowNull()][string]$HttpsProxy,
+        [switch]$Explicit)
+    if ($Explicit) {
+        $endpoint = Get-CndEndpoint $ProxyUrl
+    } else {
+        $http = Get-CndEndpoint $HttpProxy
+        $https = Get-CndEndpoint $HttpsProxy
+        if (($HttpProxy -and -not $http) -or ($HttpsProxy -and -not $https) -or
+            ($http -and $https -and $http.SafeUrl -ne $https.SafeUrl)) {
+            throw 'User HTTP_PROXY and HTTPS_PROXY differ or cannot be parsed. Pass -ProxyUrl explicitly.'
+        }
+        $endpoint = if ($https) { $https } else { $http }
+    }
+    if (-not $endpoint -or $endpoint.Scheme -ne 'http' -or -not $endpoint.IsLocal -or $endpoint.HasCredentials) {
+        throw 'Specify a valid, credential-free local HTTP proxy with -ProxyUrl, or configure matching user HTTP_PROXY and HTTPS_PROXY.'
+    }
+    return $endpoint
+}
+
 function Get-CndVariables {
     $result = [ordered]@{}
     foreach ($scope in 'Process','User','Machine') {
@@ -30,27 +50,47 @@ function Get-CndVariables {
     return $result
 }
 
+function Resolve-CndCliPath {
+    param([AllowNull()][string]$PathCommand,[bool]$DesktopInstalled,
+        [AllowNull()][string]$BundleRoot,[string[]]$RunningPaths=@())
+    if ($PathCommand -and (Test-Path -LiteralPath $PathCommand -PathType Leaf)) { return $PathCommand }
+    if (-not $DesktopInstalled -or -not $BundleRoot -or -not (Test-Path -LiteralPath $BundleRoot -PathType Container)) { return $null }
+    $root = [IO.Path]::GetFullPath($BundleRoot).TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar
+    foreach ($path in $RunningPaths) {
+        if ($path -and $path.StartsWith($root,[StringComparison]::OrdinalIgnoreCase) -and
+            (Test-Path -LiteralPath $path -PathType Leaf) -and
+            [IO.Path]::GetFileName($path) -ieq 'codex.exe') { return $path }
+    }
+    $bundled = @(Get-ChildItem -LiteralPath $BundleRoot -Directory -ErrorAction SilentlyContinue |
+        ForEach-Object { Get-Item -LiteralPath (Join-Path $_.FullName 'codex.exe') -ErrorAction SilentlyContinue } |
+        Sort-Object LastWriteTimeUtc -Descending)
+    if ($bundled.Count) { return $bundled[0].FullName }
+    return $null
+}
+
 function Get-CndSnapshot {
     $vars = Get-CndVariables
     $internet = try { Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction Stop } catch { $null }
     $system = if ($internet) { Get-CndEndpoint $internet.ProxyServer } else { $null }
     $winHttp = try { (& netsh winhttp show proxy 2>$null | Out-String).Trim() } catch { 'Unavailable' }
-    $cli = Get-Command codex.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+    $desktop = @(Get-AppxPackage -Name OpenAI.Codex -ErrorAction SilentlyContinue | Select-Object Name,Version)
+    $processes = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -match '^codex($|-)' } | Select-Object ProcessName,Id,Path)
+    $cliCommand = Get-Command codex.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+    $bundleRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'OpenAI\Codex\bin'
+    $cliPath = Resolve-CndCliPath -PathCommand $(if($cliCommand){$cliCommand.Source}else{$null}) -DesktopInstalled ($desktop.Count -gt 0) -BundleRoot $bundleRoot -RunningPaths @($processes | Where-Object ProcessName -eq 'codex' | ForEach-Object Path)
     $cliVersion = $null; $doctorSupported = $false
-    if ($cli) {
+    if ($cliPath) {
         try {
-            $cliVersion = (& $cli.Source --version 2>$null | Select-Object -First 1)
-            $doctorSupported = ((& $cli.Source doctor --help 2>$null | Out-String) -match '--network-only')
+            $cliVersion = (& $cliPath --version 2>$null | Select-Object -First 1)
+            $doctorSupported = ((& $cliPath doctor --help 2>$null | Out-String) -match '--network-only')
         } catch {}
     }
-    $desktop = @(Get-AppxPackage -Name OpenAI.Codex -ErrorAction SilentlyContinue | Select-Object Name,Version)
-    $processes = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -match '^codex($|-)' } | Select-Object ProcessName,Id)
     $listeners = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object {
         $_.LocalAddress -in @('127.0.0.1','::1','0.0.0.0','::')
     } | Select-Object LocalAddress,LocalPort,OwningProcess)
     [pscustomobject]@{ OS=[Environment]::OSVersion.VersionString; PowerShell=$PSVersionTable.PSVersion.ToString();
         Variables=$vars; SystemProxyEnabled=if($internet){[bool]$internet.ProxyEnable}else{$null};
-        SystemProxy=$system; WinHttp=$winHttp; CliPath=if($cli){$cli.Source}else{$null};
+        SystemProxy=$system; WinHttp=$winHttp; CliPath=$cliPath;
         CliVersion=$cliVersion; DoctorSupported=$doctorSupported; Desktop=$desktop;
         Processes=$processes; Listeners=$listeners }
 }
@@ -85,7 +125,7 @@ function Resolve-CndFindings {
             $findings.Add((New-CndFinding STALE_CODEX_CLI_PATH Warning "$scope CODEX_CLI_PATH does not exist" 'Outdated runtime override' High 'Remove or correct this override separately' $false))
         }
     }
-    if (-not $Snapshot.CliPath) { $findings.Add((New-CndFinding CODEX_NOT_INSTALLED Info 'codex.exe not found on PATH' 'CLI may not be installed' High 'Install or locate the official Codex CLI' $false)) }
+    if (-not $Snapshot.CliPath) { $findings.Add((New-CndFinding CODEX_NOT_INSTALLED Info 'codex.exe not found on PATH or in the Codex Desktop bundle' 'CLI may not be installed' Medium 'Check the Codex CLI installation if terminal use is needed' $false)) }
     if ($candidate) {
         $listening = @($Snapshot.Listeners | Where-Object LocalPort -eq $candidate.Port).Count -gt 0
         if (-not $listening) { $findings.Add((New-CndFinding PROXY_CONNECTION_FAILED Error "Configured local port $($candidate.Port) is not listening" 'Proxy software stopped or port changed' High 'Start proxy software or update its documented port' $false)) }
@@ -104,6 +144,24 @@ function Invoke-CndCurlProbe {
         $status = Get-CndProbeStatus -ExitCode $exit -HttpCode $code
         [pscustomobject]@{ Status=$status; HttpStatus=if($code -match '^\d{3}$'){[int]$code}else{$null}; Detail="curl exit $exit" }
     } catch { [pscustomobject]@{ Status='Unknown'; HttpStatus=$null; Detail='Probe invocation failed' } }
+}
+
+function Invoke-CndDirectCurlProbe {
+    param([string]$Url='https://chatgpt.com/',[int]$TimeoutSeconds=8)
+    if (-not (Get-Command curl.exe -ErrorAction SilentlyContinue)) { return [pscustomobject]@{ Status='Unsupported'; HttpStatus=$null; Detail='curl.exe unavailable' } }
+    try {
+        $code = & curl.exe --silent --output NUL --write-out '%{http_code}' --connect-timeout 5 --max-time $TimeoutSeconds --noproxy '*' $Url 2>$null
+        $exit = $LASTEXITCODE
+        [pscustomobject]@{ Status=(Get-CndProbeStatus -ExitCode $exit -HttpCode $code); HttpStatus=if($code -match '^\d{3}$'){[int]$code}else{$null}; Detail="curl exit $exit" }
+    } catch { [pscustomobject]@{ Status='Unknown'; HttpStatus=$null; Detail='Probe invocation failed' } }
+}
+
+function Resolve-CndDesktopRouteFinding {
+    param($Snapshot,$ProxyProbe,$DirectProbe)
+    if ($Snapshot.Desktop.Count -eq 0 -or $Snapshot.SystemProxyEnabled -ne $false -or
+        -not $ProxyProbe -or $ProxyProbe.Status -ne 'Pass' -or -not $DirectProbe -or
+        $DirectProbe.Status -notin @('Timeout','DnsFailure','TlsFailure','ConnectionFailure')) { return $null }
+    New-CndFinding -Code DESKTOP_PROXY_ROUTE_GAP -Severity Warning -Evidence "Direct HTTPS: $($DirectProbe.Status); local proxy HTTPS: Pass; Windows system proxy: off" -Cause 'Desktop window requests may use a different route from CLI checks' -Confidence Medium -Action 'Inspect desktop network logs; if requests time out, try the app-only proxy launcher after exiting Codex' -Repairable $false
 }
 
 function Get-CndProbeStatus {
@@ -132,12 +190,15 @@ function Invoke-CndDoctor {
 }
 
 function Invoke-CndDiagnosis {
-    param([switch]$SkipNetwork)
+    param([switch]$SkipNetwork,[switch]$CheckDesktopPath)
+    if ($SkipNetwork -and $CheckDesktopPath) { throw '-CheckDesktopPath requires network checks; omit -SkipNetwork.' }
     $snapshot = Get-CndSnapshot
     $findings = [Collections.Generic.List[object]]::new()
     foreach ($item in @(Resolve-CndFindings $snapshot)) { $findings.Add($item) }
-    $candidate = if ($snapshot.SystemProxyEnabled -and $snapshot.SystemProxy -and $snapshot.SystemProxy.IsLocal) {$snapshot.SystemProxy} else {Get-CndEndpoint $snapshot.Variables.User.HTTP_PROXY}
-    $probe = $null; $doctor = $null
+    $userHttp = Get-CndEndpoint $snapshot.Variables.User.HTTP_PROXY
+    $userHttps = Get-CndEndpoint $snapshot.Variables.User.HTTPS_PROXY
+    $candidate = if ($snapshot.SystemProxyEnabled -and $snapshot.SystemProxy -and $snapshot.SystemProxy.IsLocal) {$snapshot.SystemProxy} elseif ($userHttp -and $userHttp.IsLocal) {$userHttp} elseif ($userHttps -and $userHttps.IsLocal) {$userHttps} else {$null}
+    $probe = $null; $doctor = $null; $directProbe = $null
     if (-not $SkipNetwork) {
         if ($candidate -and $candidate.IsLocal -and @($snapshot.Listeners | Where-Object LocalPort -eq $candidate.Port).Count -gt 0) {
             $probe = Invoke-CndCurlProbe $candidate
@@ -151,6 +212,11 @@ function Invoke-CndDiagnosis {
         }
         $doctor = Invoke-CndDoctor $snapshot
         if ($doctor.WebSocket -eq 'Fail') { $findings.Add((New-CndFinding WEBSOCKET_FAILURE Error 'Codex Doctor WebSocket check failed' 'Proxy upgrade or upstream path issue' Medium 'Review full Codex Doctor output locally' $false)) }
+        if ($CheckDesktopPath) {
+            $directProbe = Invoke-CndDirectCurlProbe
+            $routeFinding = Resolve-CndDesktopRouteFinding -Snapshot $snapshot -ProxyProbe $probe -DirectProbe $directProbe
+            if ($routeFinding) { $findings.Add($routeFinding) }
+        }
     }
     $safeVars = [ordered]@{}
     foreach ($scope in 'Process','User','Machine') {
@@ -166,8 +232,8 @@ function Invoke-CndDiagnosis {
         Proxy=[pscustomobject]@{ SystemEnabled=$snapshot.SystemProxyEnabled; SystemEndpoint=if($snapshot.SystemProxy){$snapshot.SystemProxy.SafeUrl}else{$null};
             WinHttp=if($snapshot.WinHttp -match '(?i)direct access|直接访问'){'direct'}else{'configured-or-unknown'};
             Variables=$safeVars; Candidate=if($candidate){$candidate.SafeUrl}else{$null} };
-        Probe=$probe; CodexDoctor=$doctor; Findings=@($findings.ToArray());
+        Probe=$probe; DesktopDirectProbe=$directProbe; CodexDoctor=$doctor; Findings=@($findings.ToArray());
         Summary=[pscustomobject]@{ Errors=@($findings | Where-Object Severity -eq Error).Count; Warnings=@($findings | Where-Object Severity -eq Warning).Count } }
 }
 
-Export-ModuleMember -Function Get-CndEndpoint,Get-CndSnapshot,Resolve-CndFindings,Get-CndProbeStatus,Invoke-CndCurlProbe,Invoke-CndDoctor,Invoke-CndDiagnosis
+Export-ModuleMember -Function Get-CndEndpoint,Resolve-CndLauncherProxy,Get-CndSnapshot,Resolve-CndCliPath,Resolve-CndFindings,Get-CndProbeStatus,Invoke-CndCurlProbe,Invoke-CndDirectCurlProbe,Resolve-CndDesktopRouteFinding,Invoke-CndDoctor,Invoke-CndDiagnosis

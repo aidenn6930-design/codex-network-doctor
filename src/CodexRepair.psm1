@@ -129,14 +129,18 @@ function Invoke-CndRepair {
     try {
         Set-CndRegistryState $after
         if (-not (Test-CndStateEqual (Get-CndRegistryState) $after)) { throw 'Post-write verification failed.' }
-        $post = Invoke-CndDiagnosis
-        Write-Output "Repair complete. Backup: $backup"
-        Write-Output "Post-check: $($post.Summary.Errors) errors; $($post.Summary.Warnings) warnings. Restart Codex in a controlled way to refresh inherited environment."
     } catch {
         $reason = $_.Exception.Message
         try { Set-CndRegistryState $before; if (-not (Test-CndStateEqual (Get-CndRegistryState) $before)) { throw 'Automatic restoration verification failed.' } }
         catch { throw "Repair failed ($reason); automatic restoration also failed. Backup: $backup. Restore manually." }
         throw "Repair failed ($reason); previous values restored. Backup: $backup"
+    }
+    Write-Output "Repair complete. Backup: $backup"
+    try {
+        $post = Invoke-CndDiagnosis
+        Write-Output "Post-check: $($post.Summary.Errors) errors; $($post.Summary.Warnings) warnings. Restart Codex in a controlled way to refresh inherited environment."
+    } catch {
+        Write-Warning 'Repair is verified, but the follow-up diagnostic failed. Restart Codex in a controlled way and rerun diagnose.'
     }
 }
 
@@ -148,6 +152,8 @@ function Invoke-CndRollback {
     $current = Get-CndRegistryState
     $conflict = -not (Test-CndStateEqual $current $after)
     if ($conflict) { Write-Warning 'Current settings differ from the values written by this backup. Newer changes may be overwritten.' }
+    $deletions = @('HTTP_PROXY','HTTPS_PROXY','NO_PROXY' | Where-Object { $current[$_].Exists -and -not $before[$_].Exists })
+    if ($deletions.Count) { Write-Warning "Rollback will remove these user variables because they were absent in the backup: $($deletions -join ', ')." }
     Write-Host 'Rollback restores the exact previous user proxy values and their defined/undefined state.'
     if ((Read-Host 'Type YES to approve rollback') -cne 'YES') { Write-Output 'Declined; no changes made.'; return }
     if ($conflict -and (Read-Host 'Type OVERWRITE to replace newer changes') -cne 'OVERWRITE') { Write-Output 'Conflict retained; no changes made.'; return }

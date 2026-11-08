@@ -1,6 +1,6 @@
 param(
     [Parameter(Position=0)][ValidateSet('diagnose','repair','rollback','version','help')][string]$Command='diagnose',
-    [switch]$Detailed,[switch]$Json,[switch]$SkipNetwork,[int]$Candidate=0,[string]$Backup
+    [switch]$Detailed,[switch]$Json,[switch]$SkipNetwork,[switch]$CheckDesktopPath,[int]$Candidate=0,[string]$Backup
 )
 $ErrorActionPreference='Stop'
 Import-Module (Join-Path $PSScriptRoot 'CodexRepair.psm1') -Force
@@ -11,7 +11,7 @@ try {
         'help' {
             @'
 Codex Network Doctor 0.1.0
-  diagnose [-Detailed] [-Json] [-SkipNetwork]
+  diagnose [-Detailed] [-Json] [-SkipNetwork] [-CheckDesktopPath]
   repair [-Candidate <1-based index>]
   rollback -Backup <path>
   version | help
@@ -19,7 +19,7 @@ No diagnostic command modifies settings. Repair and rollback require typed confi
 '@; exit 0
         }
         'diagnose' {
-            $report=Invoke-CndDiagnosis -SkipNetwork:$SkipNetwork
+            $report=Invoke-CndDiagnosis -SkipNetwork:$SkipNetwork -CheckDesktopPath:$CheckDesktopPath
             if ($Json) { $report | ConvertTo-Json -Depth 10; if($report.Summary.Errors){exit 2}; if($report.Summary.Warnings){exit 1}; exit 0 }
             'Codex Network Doctor 0.1.0'; '==========================='
             "OS: $($report.Platform.OS); PowerShell: $($report.Platform.PowerShell)"
@@ -27,6 +27,7 @@ No diagnostic command modifies settings. Repair and rollback require typed confi
             "System proxy: $($report.Proxy.SystemEndpoint) (enabled=$($report.Proxy.SystemEnabled)); WinHTTP: $($report.Proxy.WinHttp)"
             "Candidate: $(if($report.Proxy.Candidate){$report.Proxy.Candidate}else{'none'})"
             if ($report.Probe) { "HTTPS probe: $($report.Probe.Status) $(if($report.Probe.HttpStatus){'HTTP '+$report.Probe.HttpStatus})" }
+            if ($report.DesktopDirectProbe) { "Direct HTTPS probe: $($report.DesktopDirectProbe.Status) $(if($report.DesktopDirectProbe.HttpStatus){'HTTP '+$report.DesktopDirectProbe.HttpStatus})" }
             if ($report.CodexDoctor) { "Codex Doctor: $($report.CodexDoctor.Status); WebSocket: $($report.CodexDoctor.WebSocket)" }
             foreach ($finding in $report.Findings) {
                 "[$($finding.Severity.ToUpperInvariant())] $($finding.Code): $($finding.Evidence)"
